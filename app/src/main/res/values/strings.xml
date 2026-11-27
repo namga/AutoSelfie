@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">YUMY Intruder Selfie</string>
+    <string name="admin_description">Cho phép ghi nhận sự kiện nhập sai mật khẩu màn hình khóa mà Android cung cấp. Ứng dụng không đọc mật khẩu hoặc dữ liệu sinh trắc học.</string>
+</resources>

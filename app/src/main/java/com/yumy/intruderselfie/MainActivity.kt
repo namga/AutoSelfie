@@ -6,6 +6,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -16,7 +17,9 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -32,11 +35,15 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 private val Green = Color(0xFF16856B)
 private val Ink = Color(0xFF17352D)
@@ -53,6 +60,8 @@ private fun Dashboard() {
     val context = LocalContext.current
     var events by remember { mutableStateOf(EventStore.all(context)) }
     var adminEnabled by remember { mutableStateOf(isAdminEnabled(context)) }
+    var photos by remember { mutableStateOf(PhotoStore.all(context)) }
+    var selectedPhoto by remember { mutableStateOf<File?>(null) }
     var showCamera by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Sẵn sàng bảo vệ nhật ký sự kiện") }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -61,6 +70,7 @@ private fun Dashboard() {
             if (event == Lifecycle.Event.ON_RESUME) {
                 events = EventStore.all(context)
                 adminEnabled = isAdminEnabled(context)
+                photos = PhotoStore.all(context)
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -75,7 +85,7 @@ private fun Dashboard() {
     }
 
     if (showCamera) {
-        CameraTestScreen(onDone = { message -> showCamera = false; status = message })
+        CameraTestScreen(onDone = { message -> showCamera = false; status = message; photos = PhotoStore.all(context) })
         return
     }
 
@@ -111,6 +121,34 @@ private fun Dashboard() {
             }
             Text(status, color = Color(0xFF63766F), style = MaterialTheme.typography.bodySmall)
         }
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("ẢNH ĐÃ LƯU", color = Ink, style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.weight(1f))
+                Text("${photos.size} ảnh", color = Green, style = MaterialTheme.typography.labelMedium)
+            }
+        }
+        if (photos.isEmpty()) {
+            item {
+                Card(colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                    Text("Chưa có ảnh. Nhấn ‘Kiểm tra camera trước’, sau đó nhấn ‘Chụp ảnh thử’. Ảnh sẽ được lưu trong vùng riêng tư của ứng dụng và hiển thị tại đây.", Modifier.padding(16.dp), color = Color(0xFF63766F), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        } else {
+            items(photos, key = { it.absolutePath }) { photo ->
+                Card(modifier = Modifier.fillMaxWidth().clickable { selectedPhoto = photo }, colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(14.dp)) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        val bitmap = remember(photo.absolutePath, photo.lastModified()) { BitmapFactory.decodeFile(photo.absolutePath) }
+                        if (bitmap != null) Image(bitmap.asImageBitmap(), contentDescription = "Ảnh đã lưu", modifier = Modifier.size(64.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(photo.name, color = Ink, style = MaterialTheme.typography.titleSmall)
+                            Text("${photo.length() / 1024} KB · ${SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault()).format(Date(photo.lastModified()))}", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                            Text("Chạm để xem ảnh", color = Green, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
+        }
         item { Text("LỊCH SỬ BẢO MẬT", color = Ink, style = MaterialTheme.typography.titleMedium) }
         if (events.isEmpty()) item { Text("Chưa có sự kiện. Android chỉ gửi callback khi đủ điều kiện hệ thống.", color = Color.Gray) }
         items(events) { event ->
@@ -123,6 +161,19 @@ private fun Dashboard() {
             }
         }
         item { Text("Ảnh không được tự chụp từ màn hình khóa. Camera chỉ hoạt động khi người dùng mở chức năng và cấp quyền.", color = Color.Gray, style = MaterialTheme.typography.bodySmall) }
+    }
+    selectedPhoto?.let { photo ->
+        androidx.compose.ui.window.Dialog(onDismissRequest = { selectedPhoto = null }) {
+            Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val bitmap = remember(photo.absolutePath, photo.lastModified()) { BitmapFactory.decodeFile(photo.absolutePath) }
+                    if (bitmap != null) Image(bitmap.asImageBitmap(), contentDescription = "Ảnh đã lưu", modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp))
+                    Text(photo.name, color = Ink, style = MaterialTheme.typography.bodySmall)
+                    Text("${photo.length()} bytes · ${if (photo.exists() && photo.length() > 0) "Tệp hợp lệ" else "Không đọc được tệp"}", color = Green, style = MaterialTheme.typography.labelMedium)
+                    Button(onClick = { selectedPhoto = null }, modifier = Modifier.fillMaxWidth()) { Text("Đóng") }
+                }
+            }
+        }
     }
 }
 
@@ -162,8 +213,12 @@ private fun CameraTestScreen(onDone: (String) -> Unit) {
             val dir = File(context.filesDir, "intruder_photos").apply { mkdirs() }
             val file = File(dir, "selfie_${System.currentTimeMillis()}.jpg")
             capture.takePicture(ImageCapture.OutputFileOptions.Builder(file).build(), ContextCompat.getMainExecutor(context), object : ImageCapture.OnImageSavedCallback {
-                override fun onImageSaved(output: ImageCapture.OutputFileResults) { message = "Đã lưu ảnh riêng tư trong bộ nhớ ứng dụng." }
-                override fun onError(exception: ImageCaptureException) { message = "Chụp ảnh thất bại: ${exception.message}" }
+                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                    val saved = file.exists() && file.length() > 0L
+                    message = if (saved) "ĐÃ CHỤP VÀ LƯU THÀNH CÔNG\n${file.name} · ${file.length() / 1024} KB\nẢnh nằm trong mục ẢNH ĐÃ LƯU trên màn hình chính."
+                    else "Camera báo hoàn tất nhưng không tìm thấy tệp ảnh. Hãy thử lại và kiểm tra dung lượng bộ nhớ."
+                }
+                override fun onError(exception: ImageCaptureException) { message = "CHỤP ẢNH THẤT BẠI: ${exception.message} (mã ${exception.imageCaptureError})" }
             })
         }, modifier = Modifier.fillMaxWidth()) { Text("Chụp ảnh thử") }
         OutlinedButton(onClick = { onDone(message) }, modifier = Modifier.fillMaxWidth()) { Text("Quay lại", color = Color.White) }
@@ -173,4 +228,13 @@ private fun CameraTestScreen(onDone: (String) -> Unit) {
 private fun isAdminEnabled(context: Context): Boolean {
     val manager = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
     return manager.isAdminActive(ComponentName(context, IntrusionAdminReceiver::class.java))
+}
+
+
+private object PhotoStore {
+    fun all(context: Context): List<File> = File(context.filesDir, "intruder_photos")
+        .listFiles { file -> file.isFile && file.extension.equals("jpg", ignoreCase = true) }
+        ?.filter { it.length() > 0L }
+        ?.sortedByDescending { it.lastModified() }
+        ?: emptyList()
 }

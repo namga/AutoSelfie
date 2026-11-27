@@ -31,3 +31,15 @@ Tap **Kiểm tra camera trước**, grant camera permission, and tap **Chụp �
 - No system-wide Face Unlock / fingerprint failure monitoring.
 - Event log is local and not yet Room-encrypted; photo files are app-private but not independently encrypted in this MVP.
 - Debug APK only; release signing is intentionally not configured. Add a private signing key through GitHub Actions secrets before producing a distributable release.
+
+
+## v1.0.1 – Camera capture verification
+
+- Adds an in-app **ẢNH ĐÃ LƯU** gallery with thumbnails and full-size preview.
+- After CameraX reports a successful capture, the app verifies that the output file exists and has non-zero bytes.
+- Shows the filename and file size on success; reports CameraX error details on failure.
+- Photos remain in app-private storage (`filesDir/intruder_photos`) and are not automatically exposed in the public Gallery app.
+- The camera test is user-initiated. Android/HyperOS does not expose a public API for third-party apps to observe system Face Unlock failures or silently open the camera from the lock screen.
+- Java and Kotlin JVM targets are both 17.
+
+After returning from the camera test, the dashboard refreshes the saved-photo list.

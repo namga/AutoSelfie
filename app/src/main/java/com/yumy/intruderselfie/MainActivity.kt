@@ -27,6 +27,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.Lifecycle
@@ -62,15 +67,33 @@ private fun Dashboard() {
     var adminEnabled by remember { mutableStateOf(isAdminEnabled(context)) }
     var photos by remember { mutableStateOf(PhotoStore.all(context)) }
     var selectedPhoto by remember { mutableStateOf<File?>(null) }
+    var photoToDelete by remember { mutableStateOf<File?>(null) }
+    var confirmDeleteAll by remember { mutableStateOf(false) }
+    var pinEnabled by remember { mutableStateOf(PinStore.isEnabled(context)) }
+    var appLocked by remember { mutableStateOf(pinEnabled) }
+    var showPinSettings by remember { mutableStateOf(false) }
+    var lockOnNextStart by remember { mutableStateOf(false) }
     var showCamera by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("Sẵn sàng bảo vệ nhật ký sự kiện") }
     val lifecycleOwner = LocalLifecycleOwner.current
+    val currentPinEnabled by rememberUpdatedState(pinEnabled)
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                events = EventStore.all(context)
-                adminEnabled = isAdminEnabled(context)
-                photos = PhotoStore.all(context)
+            when (event) {
+                Lifecycle.Event.ON_STOP -> if (currentPinEnabled) lockOnNextStart = true
+                Lifecycle.Event.ON_START -> {
+                    if (lockOnNextStart && currentPinEnabled) appLocked = true
+                    lockOnNextStart = false
+                    events = EventStore.all(context)
+                    adminEnabled = isAdminEnabled(context)
+                    photos = PhotoStore.all(context)
+                }
+                Lifecycle.Event.ON_RESUME -> {
+                    events = EventStore.all(context)
+                    adminEnabled = isAdminEnabled(context)
+                    photos = PhotoStore.all(context)
+                }
+                else -> Unit
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -84,6 +107,13 @@ private fun Dashboard() {
         if (granted) showCamera = true else status = "Bạn chưa cấp quyền camera"
     }
 
+    if (appLocked && pinEnabled) {
+        AppLockScreen(onUnlock = { entered ->
+            if (PinStore.verify(context, entered)) { appLocked = false; status = "Đã mở khóa ứng dụng"; true } else false
+        })
+        return
+    }
+
     if (showCamera) {
         CameraTestScreen(onDone = { message -> showCamera = false; status = message; photos = PhotoStore.all(context) })
         return
@@ -91,9 +121,30 @@ private fun Dashboard() {
 
     LazyColumn(Modifier.fillMaxSize().background(Color(0xFFF4F8F6)).padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
-            Text("YUMY", color = Green, style = MaterialTheme.typography.labelLarge)
-            Text("Intruder Selfie", color = Ink, style = MaterialTheme.typography.headlineMedium)
-            Text("Bảo vệ thiết bị · Xiaomi / HyperOS", color = Color(0xFF63766F))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("YUMY", color = Green, style = MaterialTheme.typography.labelLarge)
+                    Text("Intruder Selfie", color = Ink, style = MaterialTheme.typography.headlineMedium)
+                    Text("Bảo vệ thiết bị · Xiaomi / HyperOS", color = Color(0xFF63766F))
+                }
+                IconButton(onClick = { showPinSettings = true }) { Icon(Icons.Default.Lock, contentDescription = "Cài đặt khóa ứng dụng", tint = Green) }
+            }
+        }
+        item {
+            Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(16.dp)) {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(if (pinEnabled) Icons.Default.Lock else Icons.Default.LockOpen, contentDescription = null, tint = Green)
+                        Spacer(Modifier.width(8.dp))
+                        Text("KHÓA BẢO MẬT ỨNG DỤNG", color = Ink, style = MaterialTheme.typography.titleSmall)
+                    }
+                    Text(if (pinEnabled) "Đã bật mã PIN 6 số. Ứng dụng sẽ yêu cầu PIN khi mở lại sau khi chạy nền." else "Chưa thiết lập mã PIN. Tạo mã PIN để ngăn người khác mở ứng dụng.", color = Color(0xFF63766F), style = MaterialTheme.typography.bodySmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { showPinSettings = true }, modifier = Modifier.weight(1f)) { Text(if (pinEnabled) "Đổi mã PIN" else "Thiết lập PIN") }
+                        if (pinEnabled) Button(onClick = { appLocked = true }, modifier = Modifier.weight(1f)) { Text("Khóa ngay") }
+                    }
+                }
+            }
         }
         item {
             Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFE4F3ED))) {
@@ -126,6 +177,7 @@ private fun Dashboard() {
                 Text("ẢNH ĐÃ LƯU", color = Ink, style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.weight(1f))
                 Text("${photos.size} ảnh", color = Green, style = MaterialTheme.typography.labelMedium)
+                if (photos.isNotEmpty()) TextButton(onClick = { confirmDeleteAll = true }) { Text("Xóa tất cả", color = Color(0xFFB54738)) }
             }
         }
         if (photos.isEmpty()) {
@@ -140,11 +192,12 @@ private fun Dashboard() {
                     Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         val bitmap = remember(photo.absolutePath, photo.lastModified()) { BitmapFactory.decodeFile(photo.absolutePath) }
                         if (bitmap != null) Image(bitmap.asImageBitmap(), contentDescription = "Ảnh đã lưu", modifier = Modifier.size(64.dp))
-                        Column(Modifier.weight(1f)) {
+                        Column(Modifier.weight(1f).clickable { selectedPhoto = photo }) {
                             Text(photo.name, color = Ink, style = MaterialTheme.typography.titleSmall)
                             Text("${photo.length() / 1024} KB · ${SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault()).format(Date(photo.lastModified()))}", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
                             Text("Chạm để xem ảnh", color = Green, style = MaterialTheme.typography.labelSmall)
                         }
+                        IconButton(onClick = { photoToDelete = photo }) { Icon(Icons.Default.Delete, contentDescription = "Xóa ảnh", tint = Color(0xFFB54738)) }
                     }
                 }
             }
@@ -162,6 +215,52 @@ private fun Dashboard() {
         }
         item { Text("Ảnh không được tự chụp từ màn hình khóa. Camera chỉ hoạt động khi người dùng mở chức năng và cấp quyền.", color = Color.Gray, style = MaterialTheme.typography.bodySmall) }
     }
+    photoToDelete?.let { photo ->
+        AlertDialog(
+            onDismissRequest = { photoToDelete = null },
+            title = { Text("Xóa ảnh này?") },
+            text = { Text("${photo.name} sẽ bị xóa khỏi bộ nhớ riêng của ứng dụng. Không thể hoàn tác.") },
+            confirmButton = { TextButton(onClick = {
+                val deleted = runCatching { photo.delete() }.getOrDefault(false)
+                photos = PhotoStore.all(context)
+                status = if (deleted) "Đã xóa ảnh ${photo.name}" else "Không thể xóa ảnh. Hãy thử lại."
+                photoToDelete = null
+            }) { Text("Xóa", color = Color(0xFFB54738)) } },
+            dismissButton = { TextButton(onClick = { photoToDelete = null }) { Text("Hủy") } }
+        )
+    }
+    if (confirmDeleteAll) {
+        AlertDialog(
+            onDismissRequest = { confirmDeleteAll = false },
+            title = { Text("Xóa toàn bộ ảnh?") },
+            text = { Text("Tất cả ${photos.size} ảnh đã lưu sẽ bị xóa vĩnh viễn khỏi ứng dụng.") },
+            confirmButton = { TextButton(onClick = {
+                val total = photos.size
+                val count = photos.count { runCatching { it.delete() }.getOrDefault(false) }
+                photos = PhotoStore.all(context)
+                status = "Đã xóa $count/$total ảnh"
+                confirmDeleteAll = false
+            }) { Text("Xóa tất cả", color = Color(0xFFB54738)) } },
+            dismissButton = { TextButton(onClick = { confirmDeleteAll = false }) { Text("Hủy") } }
+        )
+    }
+    if (showPinSettings) {
+        PinSettingsDialog(
+            enabled = pinEnabled,
+            onDismiss = { showPinSettings = false },
+            onSave = { oldPin, newPin ->
+                val allowed = !pinEnabled || PinStore.verify(context, oldPin)
+                if (!allowed) "Mã PIN hiện tại không đúng"
+                else if (newPin.length != 6 || newPin.any { !it.isDigit() }) "Mã PIN phải gồm đúng 6 chữ số"
+                else { PinStore.set(context, newPin); pinEnabled = true; showPinSettings = false; "Đã bật/cập nhật mã PIN" }
+            },
+            onDisable = { oldPin ->
+                if (!PinStore.verify(context, oldPin)) "Mã PIN hiện tại không đúng"
+                else { PinStore.clear(context); pinEnabled = false; appLocked = false; showPinSettings = false; "Đã tắt khóa ứng dụng" }
+            }
+        )
+    }
+
     selectedPhoto?.let { photo ->
         androidx.compose.ui.window.Dialog(onDismissRequest = { selectedPhoto = null }) {
             Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
@@ -222,6 +321,81 @@ private fun CameraTestScreen(onDone: (String) -> Unit) {
             })
         }, modifier = Modifier.fillMaxWidth()) { Text("Chụp ảnh thử") }
         OutlinedButton(onClick = { onDone(message) }, modifier = Modifier.fillMaxWidth()) { Text("Quay lại", color = Color.White) }
+    }
+}
+
+@Composable
+private fun AppLockScreen(onUnlock: (String) -> Boolean) {
+    var pin by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf("") }
+    Column(Modifier.fillMaxSize().background(Color(0xFFF4F8F6)).padding(28.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(Icons.Default.Lock, contentDescription = null, tint = Green, modifier = Modifier.size(54.dp))
+        Spacer(Modifier.height(16.dp))
+        Text("YUMY Intruder Selfie", color = Ink, style = MaterialTheme.typography.headlineSmall)
+        Text("Nhập mã PIN 6 số để mở khóa", color = Color.Gray)
+        Spacer(Modifier.height(20.dp))
+        OutlinedTextField(value = pin, onValueChange = { if (it.length <= 6 && it.all(Char::isDigit)) pin = it; error = "" }, label = { Text("Mã PIN") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword))
+        if (error.isNotBlank()) Text(error, color = Color(0xFFB54738), style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(14.dp))
+        Button(onClick = { if (pin.length != 6) error = "Vui lòng nhập đủ 6 chữ số" else if (onUnlock(pin)) pin = "" else { error = "Mã PIN không đúng"; pin = "" } }, modifier = Modifier.fillMaxWidth()) { Text("Mở khóa") }
+    }
+}
+
+@Composable
+private fun PinSettingsDialog(enabled: Boolean, onDismiss: () -> Unit, onSave: (String, String) -> String, onDisable: (String) -> String) {
+    var oldPin by remember { mutableStateOf("") }
+    var newPin by remember { mutableStateOf("") }
+    var confirmPin by remember { mutableStateOf("") }
+    var message by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (enabled) "Đổi mã PIN ứng dụng" else "Thiết lập khóa ứng dụng") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (enabled) OutlinedTextField(value = oldPin, onValueChange = { if (it.length <= 6 && it.all(Char::isDigit)) oldPin = it }, label = { Text("PIN hiện tại") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword))
+                OutlinedTextField(value = newPin, onValueChange = { if (it.length <= 6 && it.all(Char::isDigit)) newPin = it }, label = { Text("PIN mới (6 số)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword))
+                OutlinedTextField(value = confirmPin, onValueChange = { if (it.length <= 6 && it.all(Char::isDigit)) confirmPin = it }, label = { Text("Nhập lại PIN mới") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword))
+                if (message.isNotBlank()) Text(message, color = Color(0xFFB54738), style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = { TextButton(onClick = {
+            if (newPin != confirmPin) message = "Hai mã PIN không trùng nhau"
+            else { val result = onSave(oldPin, newPin); if (result.isNotBlank()) message = result }
+        }) { Text("Lưu PIN") } },
+        dismissButton = {
+            Row {
+                if (enabled) TextButton(onClick = { val result = onDisable(oldPin); if (result.isNotBlank()) message = result }) { Text("Tắt khóa", color = Color(0xFFB54738)) }
+                TextButton(onClick = onDismiss) { Text("Đóng") }
+            }
+        }
+    )
+}
+
+private object PinStore {
+    private const val PREFS = "app_lock"
+    private const val SALT = "pin_salt"
+    private const val HASH = "pin_hash"
+    fun isEnabled(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).contains(HASH)
+    fun set(context: Context, pin: String) {
+        val salt = ByteArray(16).also { java.security.SecureRandom().nextBytes(it) }
+        val hash = derive(pin, salt)
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs.edit().putString(SALT, android.util.Base64.encodeToString(salt, android.util.Base64.NO_WRAP)).putString(HASH, android.util.Base64.encodeToString(hash, android.util.Base64.NO_WRAP)).apply()
+    }
+    fun verify(context: Context, pin: String): Boolean {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val saltText = prefs.getString(SALT, null) ?: return false
+        val hashText = prefs.getString(HASH, null) ?: return false
+        return runCatching {
+            val expected = android.util.Base64.decode(hashText, android.util.Base64.NO_WRAP)
+            val actual = derive(pin, android.util.Base64.decode(saltText, android.util.Base64.NO_WRAP))
+            java.security.MessageDigest.isEqual(expected, actual)
+        }.getOrDefault(false)
+    }
+    fun clear(context: Context) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(SALT).remove(HASH).apply() }
+    private fun derive(pin: String, salt: ByteArray): ByteArray {
+        val spec = javax.crypto.spec.PBEKeySpec(pin.toCharArray(), salt, 120_000, 256)
+        return try { javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).encoded } finally { spec.clearPassword() }
     }
 }
 

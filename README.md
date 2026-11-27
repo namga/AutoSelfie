@@ -43,3 +43,22 @@ Tap **Kiểm tra camera trước**, grant camera permission, and tap **Chụp �
 - Java and Kotlin JVM targets are both 17.
 
 After returning from the camera test, the dashboard refreshes the saved-photo list.
+
+
+## v1.0.2 updates
+- Added per-photo deletion and delete-all with confirmation.
+- Added app-level six-digit PIN lock, PIN change/disable requiring the current PIN, and relock after the app leaves the foreground.
+- PIN is stored as a salted PBKDF2-HMAC-SHA256 hash; the plaintext PIN is not stored.
+- System failed-password callbacks remain event logging only; they do not trigger background camera capture.
+
+## v1.0.2 – Photo management and app lock
+
+- Delete an individual saved photo from the photo list; the app asks for confirmation first.
+- Delete all saved photos with a separate confirmation.
+- Set a six-digit app PIN, change it, or disable it after confirming the current PIN.
+- The app asks for the PIN on launch and again after the app has left the foreground.
+- PIN verification uses a per-PIN random salt and PBKDF2-HMAC-SHA256 (120,000 iterations); the plaintext PIN is not persisted.
+- Photos remain in the app-private `filesDir/intruder_photos` folder. Deleting a photo removes that file from the app-private folder.
+- This app lock protects access to the app UI; it does not replace Android's device lock or encrypt the photo files themselves.
+
+System password-failure callbacks are still recorded as events only. They do not automatically launch the camera from the lock screen or background.

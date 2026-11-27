@@ -14,7 +14,7 @@ This app cannot observe failed Xiaomi system Face Unlock attempts. Android's pub
 
 ## Build
 - Android Studio: open this folder, sync Gradle, then Build > Build APK(s).
-- CLI: `gradle assembleDebug` (requires JDK 17 and Android SDK platform 35/build-tools installed).
+- CLI: `gradle assembleDebug` (requires JDK 17 and Android SDK platform 35/build-tools installed; Java and Kotlin compilation targets are both set to JVM 17).
 - GitHub: push to `main` or `master`, or run **Build YUMY Intruder Selfie APK** from Actions. Download the artifact `YUMY_Intruder_Selfie_v1.0.0_debug`.
 
 ## Device Admin setup

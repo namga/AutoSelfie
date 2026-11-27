@@ -18,6 +18,14 @@ android {
         release { isMinifyEnabled = false }
         debug { applicationIdSuffix = ".debug"; versionNameSuffix = "-debug" }
     }
+    // Keep Java and Kotlin bytecode targets aligned. GitHub Actions uses JDK 17.
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
     buildFeatures { compose = true }
 }
 
